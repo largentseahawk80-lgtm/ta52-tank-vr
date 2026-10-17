@@ -62,7 +62,7 @@
   <div id="title" class="card">
     <h1>TA-52 RLWTF (TEST) — Walk-In As-Built</h1>
     <p>80 panels · 36 seams · 4 DTs · 5 repairs · Practice data from the TEST submittal package. Panels drawn to true size (22.5 ft × 60 ft).</p>
-    <p>Left stick: walk.<br>Point + trigger: tap things.<br>Meta button (right controller): leave.</p>
+    <p>Left stick: walk.<br>Point + trigger: tap things.<br>Meta button (right controller): leave.<br>LAYERS board (above the red EXIT sign): pick a layer in the headset — other sheets disappear, the data stays.</p>
   </div>
   <div id="layers" class="card">
     <button class="lbtn" data-layer="PM">Primary<small>top membrane</small></button>
@@ -92,7 +92,7 @@
   <div id="joy" aria-label="Move joystick"><div id="joyKnob"></div></div>
   <div id="info" class="card"></div>
   <div id="droneLabel" class="card">DRONE VIEW — circling the job. Move the joystick to take over.</div>
-  <div id="hint" class="card">Buttons (top-left) opens layers, views, WALK &amp; FLY · Drag to look around · Push the round joystick (bottom-left) to move · In the headset — Left stick: walk. Point + trigger: tap things. Meta button (right controller): leave.</div>
+  <div id="hint" class="card">Buttons (top-left) opens layers, views, WALK &amp; FLY · Drag to look around · Push the round joystick (bottom-left) to move · In the headset — Left stick: walk. Point + trigger: tap things. Meta button (right controller): leave. Switch layers on the LAYERS board above the red EXIT sign.</div>
   <div id="loadNote" class="card">The 3D view didn't load. Check your connection, then reload this page.</div>
 </div>
 
@@ -397,7 +397,12 @@ wallLbl.position.set(0, 48, 0); world.object3D.add(wallLbl);
   });
 });
 
-// --- panels, per layer groups ---
+// --- SHEET groups (one per layer: panel sheets + their printed labels) and
+// --- one DATA group (seam lines, DT markers, repairs, data labels).
+// The layer picker hides SHEETS only. The DATA group is never hidden by the
+// picker: choose any layer and the other sheets vanish while the full QC
+// record — every seam, DT and repair — stays on screen.
+var dataGroup = document.createElement('a-entity'); world.appendChild(dataGroup);
 Object.keys(LAYER_Y).forEach(function(L){ var grp = document.createElement('a-entity'); world.appendChild(grp); layerGroups[L] = grp; });
 
 var info = document.getElementById('info');
@@ -472,7 +477,7 @@ DATA.panels.forEach(function(p, idx){
 
 // --- seams on membrane layers: colored line + a wider invisible pick strip ---
 DATA.seams.forEach(function(s){
-  var grp = layerGroups[s.layer];
+  var grp = dataGroup;
   var bx = (panelCenterX(s.tank, s.a) + panelCenterX(s.tank, s.b)) / 2;
   var y = LAYER_Y[s.layer] + 0.22;
   var col = s.result === 'PASS' ? '#2ecc71' : '#e74c3c';
@@ -491,7 +496,7 @@ DATA.seams.forEach(function(s){
 
 // --- DT markers ---
 DATA.dts.forEach(function(d){
-  var grp = layerGroups[d.layer];
+  var grp = dataGroup;
   var bx = (panelCenterX(d.tank, d.a) + panelCenterX(d.tank, d.b)) / 2;
   var y = LAYER_Y[d.layer] + 3.2;
   var oct = el('a-octahedron', {position: bx + ' ' + y + ' 0', radius: 1.7, color: '#ff8c1a', 'class': 'pick'}, grp);
@@ -505,7 +510,7 @@ DATA.dts.forEach(function(d){
 // --- repairs ---
 var RTYPE = {P: 'PATCH', B: 'BEAD', C: 'CAP'};
 DATA.repairs.forEach(function(r){
-  var grp = layerGroups[r.layer];
+  var grp = dataGroup;
   var y = LAYER_Y[r.layer] + 0.35;
   var x, isSeam = !!r.seam;
   if (isSeam) x = (panelCenterX(r.tank, r.seam[0]) + panelCenterX(r.tank, r.seam[1])) / 2;
@@ -584,11 +589,89 @@ exitPlate.addEventListener('click', function(){
   world.object3D.add(back);
 })();
 
+// --- LAYERS board: the layer picker that works INSIDE the headset ---
+// The Buttons menu is a flat-screen overlay; it does not exist in VR, so in
+// the tank there was no way to switch layers and every sheet always showed.
+// This board hangs over the south lot above the EXIT sign: one plate per
+// layer plus ALL. Point at a plate + squeeze the trigger — the same .pick
+// click path as the EXIT plate — and it runs the same setLayer as the menu.
+// The picked plate turns amber so the current layer reads at a glance.
+var LAYER_BOARD = [
+  {key: 'PM',  name: 'PRIMARY',   sub: 'TOP MEMBRANE'},
+  {key: 'GN',  name: 'GEONET',    sub: 'DRAINAGE'},
+  {key: 'SM',  name: 'SECONDARY', sub: '2ND MEMBRANE'},
+  {key: 'GT',  name: 'GEOTEXTILE', sub: 'BOTTOM FABRIC'},
+  {key: 'ALL', name: 'ALL',       sub: 'FULL STACK'}
+];
+var layerPlates = {};
+function paintLayerBoard(){
+  LAYER_BOARD.forEach(function(p){
+    var rec = layerPlates[p.key]; if (!rec) return;
+    var g = rec.cv.getContext('2d');
+    var on = (state.layer === p.key);
+    g.fillStyle = on ? '#ffb400' : '#1b2634'; g.fillRect(0, 0, 512, 256);
+    g.strokeStyle = on ? '#141414' : 'rgba(255,255,255,0.65)'; g.lineWidth = 10; g.strokeRect(10, 10, 492, 236);
+    g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.fillStyle = on ? '#141414' : '#ffffff';
+    g.font = 'bold 72px Arial';
+    var tw = g.measureText(p.name).width;
+    if (tw > 460) g.font = 'bold ' + Math.floor(72 * 460 / tw) + 'px Arial';
+    g.fillText(p.name, 256, 94);
+    g.font = 'bold 42px Arial';
+    g.fillStyle = on ? '#4a3800' : '#b9cdd9';
+    g.fillText(p.sub, 256, 182);
+    rec.tex.needsUpdate = true;
+  });
+}
+(function buildLayerBoard(){
+  // header strip so the board names itself
+  var hcv = document.createElement('canvas'); hcv.width = 1024; hcv.height = 128;
+  var hg = hcv.getContext('2d');
+  hg.fillStyle = '#141a21'; hg.fillRect(0, 0, 1024, 128);
+  hg.strokeStyle = 'rgba(255,255,255,0.65)'; hg.lineWidth = 6; hg.strokeRect(8, 8, 1008, 112);
+  hg.textAlign = 'center'; hg.textBaseline = 'middle'; hg.fillStyle = '#ffffff';
+  hg.font = 'bold 62px Arial';
+  hg.fillText('LAYERS — POINT + SQUEEZE TO PICK', 512, 66);
+  var htex = new THREE.CanvasTexture(hcv); htex.anisotropy = 4;
+  if ('colorSpace' in htex && THREE.SRGBColorSpace) htex.colorSpace = THREE.SRGBColorSpace;
+  el('a-box', {position: '0 63 100', width: 92, height: 11, depth: 1.2, color: '#141a21'}, world);
+  var hgeo = new THREE.PlaneGeometry(91.4, 10.4);
+  var hmat = new THREE.MeshBasicMaterial({map: htex, fog: false});
+  var hf = new THREE.Mesh(hgeo, hmat); hf.position.set(0, 63, 100.65); world.object3D.add(hf);
+  var hb = new THREE.Mesh(hgeo, hmat); hb.position.set(0, 63, 99.35); hb.rotation.y = Math.PI; world.object3D.add(hb);
+  // one plate per layer
+  LAYER_BOARD.forEach(function(p, i){
+    var x = -72 + i * 36;
+    var plate = el('a-box', {position: x + ' 50 100', width: 34, height: 17, depth: 1.2, color: '#1b2634', 'class': 'pick'}, world);
+    plate.addEventListener('click', function(){ setLayer(p.key); });
+    var cv = document.createElement('canvas'); cv.width = 512; cv.height = 256;
+    var tex = new THREE.CanvasTexture(cv); tex.anisotropy = 4;
+    if ('colorSpace' in tex && THREE.SRGBColorSpace) tex.colorSpace = THREE.SRGBColorSpace;
+    var geo = new THREE.PlaneGeometry(33.4, 16.4);
+    var mat = new THREE.MeshBasicMaterial({map: tex, fog: false});
+    var f = new THREE.Mesh(geo, mat); f.position.set(x, 50, 100.65); world.object3D.add(f);
+    var b = new THREE.Mesh(geo, mat); b.position.set(x, 50, 99.35); b.rotation.y = Math.PI; world.object3D.add(b);
+    layerPlates[p.key] = {cv: cv, tex: tex};
+  });
+})();
+
 // --- layer switching ---
+// A picked layer keeps its SHEET; every other sheet is switched off three
+// ways at once — A-Frame attribute, the renderer's own visible flag, and
+// parked 500 ft under the lot — so no view (flat, in-tank, or VR) can keep
+// showing it, and its panels can't steal a tap meant for the data. The DATA
+// group (seams, DTs, repairs, labels) is never touched: data always stays.
 function setLayer(L){
   state.layer = L;
-  Object.keys(layerGroups).forEach(function(k){ layerGroups[k].setAttribute('visible', (L === 'ALL' || L === k)); });
+  Object.keys(layerGroups).forEach(function(k){
+    var on = (L === 'ALL' || L === k);
+    var grp = layerGroups[k];
+    grp.setAttribute('visible', on);
+    grp.setAttribute('position', '0 ' + (on ? 0 : -500) + ' 0');
+    if (grp.object3D){ grp.object3D.visible = on; grp.object3D.position.y = on ? 0 : -500; }
+  });
   document.querySelectorAll('.lbtn').forEach(function(b){ b.classList.toggle('on', b.getAttribute('data-layer') === L); });
+  paintLayerBoard();
 }
 document.querySelectorAll('.lbtn').forEach(function(b){ b.addEventListener('click', function(){ setLayer(b.getAttribute('data-layer')); }); });
 setLayer('ALL');
